@@ -27,18 +27,6 @@ class ParametersScreen(QWidget):
         self.dLineEdit = self.findChild(QLineEdit, "dLineEdit")
         self.partHeightLineEdit = self.findChild(QLineEdit, "partHeightLineEdit")
         self.dosingHeightLineEdit = self.findChild(QLineEdit, "dosingHeightLineEdit")  # Add dosingHeightLineEdit
-        # --------- thermal camera parameters -----------------------
-        self.sensLineEdit = self.findChild(QLineEdit,"sensLineEdit")
-        self.sensLineEdit.returnPressed.connect(lambda: self.change_camera_params("sens", float(self.sensLineEdit.text())))
-
-        self.emisLineEdit = self.findChild(QLineEdit,"emisLineEdit")
-        self.emisLineEdit.returnPressed.connect(lambda: self.change_camera_params("em", float(self.emisLineEdit.text())))
-
-        self.offCorrLineEdit = self.findChild(QLineEdit,"offCorrLineEdit")
-        self.offCorrLineEdit.returnPressed.connect(lambda: self.change_camera_params("offset", float(self.offCorrLineEdit.text())))
-
-
-
 
         # Initialize all QPlainTextEdit widgets
         self.powderLoadingSequenceText = self.findChild(QPlainTextEdit, "powderLoadingSequenceText")
@@ -81,16 +69,6 @@ class ParametersScreen(QWidget):
         # Load parameters from YAML file
         self.load_parameters()
 
-    def change_camera_params(self, param, val):
-        if self.main_window.thermal_camera:
-            if param =="sens":
-                self.main_window.thermal_camera.change_param_request("sens_factor", val)
-            elif param =="em":
-                self.main_window.thermal_camera.change_param_request("emissivity", val)
-            elif param == "offset":
-                self.main_window.thermal_camera.change_param_request("offset_corr", val)
-        else:
-            print("Initialise thermal camera first")
     def load_parameters(self):
         try:
             with open('parameters.yaml', 'r') as file:

@@ -32,7 +32,8 @@ class RGBCamera(QThread):
             print("Error: Failed to capture an image.")
             time.sleep(0.5)  # Add a small delay before retrying
             return
-        zoom_factor = 0.55
+        zoom_factor = 0.8
+
         # Define the region of interest (ROI) for cropping
         height, width, _ = frame.shape
         roi_size = int(min(height, width) * zoom_factor)   # Define the size of the inner square (half of the smaller dimension)

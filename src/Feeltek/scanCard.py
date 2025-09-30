@@ -185,7 +185,6 @@ class Scancard:
             try:
                 print(f"Executing command {cmd} with data {data}")
                 json_string = json.dumps({"sid": 0, "cmd": cmd, "data": data})
-                print(f"Packet to scancard : {json_string}")
                 with socket.create_connection((self.HOST, self.PORT), timeout=self.timeout) as sock:
                     sock.sendall(json_string.encode())
                     ret = sock.recv(1024)
@@ -207,7 +206,6 @@ class Scancard:
                 print("Command executed successfully")
             else:
                 print("There was an error executing the command")
-                print(result)
         except Exception as e:
             print(f"An error occurred: {e}")
         future.add_done_callback(lambda f: self.mutex.unlock())

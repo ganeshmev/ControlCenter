@@ -48,7 +48,7 @@ DEFAULT_CTRL_STAT = {
     'POWER_DOWN_1': 0x00,
     'POWER_DOWN_2': 0x02,
     "SENS_FACTOR" : 0x64,  # read from camera module; ideally 0x64 = 1.00
-    'EMISSIVITY': 0x5F,
+    'EMISSIVITY': 0x55,
     'OFFSET_CORR': 0x00,
     'FILTER_CTRL': 0x00,
     'FILTER_1_LSB': 0x32,

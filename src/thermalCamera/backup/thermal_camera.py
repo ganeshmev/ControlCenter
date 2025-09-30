@@ -168,7 +168,7 @@ class ThermalCamera(QThread):
             max_temp_loc = np.unravel_index(np.argmax(frame, axis=None), frame.shape)
             max_temp_loc = (max_temp_loc[1] - x1, max_temp_loc[0] - y1)  # Adjust for ROI
             max_temp_loc = (max_temp_loc[0] * 600 // (x2 - x1), max_temp_loc[1] * 600 // (y2 - y1))  # Scale to resized frame
-            cv.rectangle(roi_frame, (max_temp_loc[0] - 5, max_temp_loc[1] - 5), (max_temp_loc[0] + 5, max_temp_loc[1] + 5), (0, 0, 0), 1)
+            cv.rectangle(roi_frame, (max_temp_loc[0] - 5, max_temp_loc[1] - 5), (max_temp_loc[0] + 5, max_temp_loc[1] + 5), (255, 255, 255), 1)
 
             # Emit the maximum temperature after dead pixel correction
             self.max_temp_signal.emit(frame.max())
@@ -244,9 +244,9 @@ class ThermalCamera(QThread):
                  # ⬇️ Add compatibility mapping for old 3×3 heater controller names
             compat_map = {
                 'top-left': (
-                          + temps.get('Section 7', 0) + 
-                         temps.get('Section 2', 0) + temps.get('Section 8', 0)
-                    ) / 3,
+                        temps.get('Section 1', 0) + temps.get('Section 2', 0) +
+                        temps.get('Section 7', 0) + temps.get('Section 8', 0)
+                    ) / 4,
 
                     'top-center': (
                         temps.get('Section 3', 0) + temps.get('Section 4', 0) +
@@ -254,13 +254,13 @@ class ThermalCamera(QThread):
                     ) / 4,
 
                     'top-right': (
-                        temps.get('Section 5', 0)  +
+                        temps.get('Section 5', 0) + temps.get('Section 6', 0) +
                         temps.get('Section 11', 0) + temps.get('Section 12', 0)
-                    ) / 3,
+                    ) / 4,
 
                     'middle-left': (
-                         temps.get('Section 13', 0)  + temps.get('Section 19', 0)
-                         + temps.get('Section 14', 0)  + temps.get('Section 20', 0)
+                        temps.get('Section 13', 0) + temps.get('Section 14', 0) +
+                        temps.get('Section 19', 0) + temps.get('Section 20', 0)
                     ) / 4,
 
                     'middle-center': (
@@ -274,9 +274,9 @@ class ThermalCamera(QThread):
                     ) / 4,
 
                     'bottom-left': (
-                         temps.get('Section 26', 0) + temps.get('Section 32', 0) 
-                         + temps.get('Section 25', 0)
-                    ) / 3,
+                        temps.get('Section 25', 0) + temps.get('Section 26', 0) +
+                        temps.get('Section 31', 0) + temps.get('Section 32', 0)
+                    ) / 4,
 
                     'bottom-center': (
                         temps.get('Section 27', 0) + temps.get('Section 28', 0) +
@@ -285,8 +285,8 @@ class ThermalCamera(QThread):
 
                     'bottom-right': (
                         temps.get('Section 29', 0) + temps.get('Section 30', 0) +
-                        temps.get('Section 35', 0) 
-                    ) / 3,
+                        temps.get('Section 35', 0) + temps.get('Section 36', 0)
+                    ) / 4,
                     
 }
             temps.update(compat_map)
@@ -307,7 +307,7 @@ class ThermalCamera(QThread):
 
             font = cv.FONT_HERSHEY_SIMPLEX
             font_scale = 0.5
-            color = (0, 0, 0)
+            color = (255, 255, 255)
             thickness = 1
 
             count = 1
@@ -316,7 +316,7 @@ class ThermalCamera(QThread):
                     x = col * section_w + section_w // 4
                     y = row * section_h + section_h // 2
                     temp_val = temps.get(f"Section {count}", 0)
-                    cv.putText(frame, f"{temp_val:.1f}", (x, y), font, font_scale, color, thickness)
+                    cv.putText(frame, f"{temp_val:.1f}°C", (x, y), font, font_scale, color, thickness)
                     cv.putText(frame, f"{count}", (col * section_w + 5, row * section_h + 15), font, 0.4, (0, 255, 0), 1)
                     count += 1
         except Exception as e:

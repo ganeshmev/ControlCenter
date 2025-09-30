@@ -17,6 +17,12 @@ class ProcessAutomationController(QObject):
 
         # Connect the progress update signal to the slot
         self.progress_update_signal.connect(self.update_progress_bar)
+        
+    def set_chamber_temp(self, value: float):
+        """Update chamber temperature setpoint safely."""
+        rounded = round(value, 2)
+        self.main_window.printer_status.setChamberTemperatureSetpoint(rounded)
+        print(f"[ChamberTemp] Setpoint set to {rounded}°C at layer {self.main_window.current_layer}")
 
     def update_progress_bar(self, value):
         """Slot to update the progress bar value."""
@@ -34,7 +40,7 @@ class ProcessAutomationController(QObject):
         layerHeight = self.main_window.printer_status.layerHeight
         
         if Config.DEVELOPMENT_MODE:
-            layerHeight = 0.13
+            layerHeight = 0.1
 
         initialLevellingHeight = self.main_window.printer_status.initialLevellingHeight
         
@@ -72,7 +78,7 @@ class ProcessAutomationController(QObject):
         layerHeight = self.main_window.printer_status.layerHeight
 
         if Config.DEVELOPMENT_MODE:
-            layerHeight = 0.13
+            layerHeight = 0.1
 
         heatedBufferHeight = self.main_window.printer_status.heatedBufferHeight
        
@@ -166,12 +172,24 @@ class ProcessAutomationController(QObject):
         self.progress_update_signal.emit(20)
         print("Heated Buffer Recoat done")
 
+        initial_temp = self.main_window.printer_status.chamberTemperatureSetpoint
+        cooldown_temp = initial_temp - 5
+
         ###### ---- Actual Printing Process ------- ######
 
 
         # Step 3 and 4: Mark laser and dose recoat layer until all layers are done
         
         for i in range(layer_count):
+            
+        # Automatically update chamber temperature based on layer number
+            
+            if i < 10:
+                self.set_chamber_temp(initial_temp)
+            else:
+                self.set_chamber_temp(cooldown_temp)
+
+
             if not self.process_running:
                 self.progress_update_signal.emit(0)
                 break

@@ -47,13 +47,13 @@ class ThermalCamera(QThread):
         self.latest_frame = None
         self.lock = threading.Lock()
 
-        self.temps = {f"Section {i}": 0 for i in range(1, 37)}
+        self.temps = {f"Section {i}": 0 for i in range(1, 10)}
         
         # Connect to the MI48 camera. detects automatically 
         self.mi48, self.connected_port, _ = connect_senxor(src=self.com_port) if self.com_port else connect_senxor()
 
         # Set camera parameters
-        self.mi48.set_fps(10)                                                   # Set Frames Per Second (FPS)  15-->25
+        self.mi48.set_fps(5)                                                   # Set Frames Per Second (FPS)  15-->25
         self.mi48.disable_filter(f1=True, f2=True, f3=True)                     # Disable all filters
         self.mi48.set_filter_1(85)                                              # Set internal filter sett 1 to 85
         self.mi48.enable_filter(f1=True, f2=False, f3=False, f3_ks_5=False)
@@ -79,8 +79,11 @@ class ThermalCamera(QThread):
             idx += 1
         self.log_filename = f"{log_base}_{idx}.csv"
 
-        self.section_order = [f"Section {i}" for i in range(1, 37)]
-
+        self.section_order = [
+            "top-left", "top-center", "top-right",
+            "middle-left", "middle-center", "middle-right",
+            "bottom-left", "bottom-center", "bottom-right"
+        ]
         with open(self.log_filename, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['timestamp'] + self.section_order)
@@ -91,15 +94,13 @@ class ThermalCamera(QThread):
         """Runs the camera processing loop asynchronously."""
         while self.running:
             self.process_frame()
-
+            
     def process_frame(self):
         """Processes a frame: crops ROI, calculates temperatures, overlays grid and text."""
-       
         try:
             data, header = self.mi48.read()
             if data is None:
                 return
-            
             # ---- update: for getting die temperature
             if header and 'senxor_temperature' in header:
                 chip_temp = header['senxor_temperature']
@@ -121,30 +122,14 @@ class ThermalCamera(QThread):
             # Vertical flip and rotate
             #frame = cv.flip(frame, 1)
             frame = cv.rotate(frame, cv.ROTATE_90_CLOCKWISE)
-            frame_height, frame_width = frame.shape[:2]  # After rotation
-
 
             # Apply filters
             filt_frame = cv_filter(remap(frame), {'blur_ks': 3, 'd': 5, 'sigmaColor': 27, 'sigmaSpace': 27},  #Remaps temperature values for visualization
                                 use_median=True, use_bilat=True, use_nlm=False)                            #Applies smoothing filters to reduce noise.
 
-           # Crop to ROI
+            # Crop to ROI
             x1, y1, x2, y2 = self.roi
-
-            # Ensure width and height are divisible by 6 to avoid region overflow
-            # Clip x2/y2 to not exceed actual frame size
-            x2 = min(x2, frame_width)
-            y2 = min(y2, frame_height)
-
-            # Ensure divisible by 6
-            roi_width = x2 - x1 - ((x2 - x1) % 6)
-            roi_height = y2 - y1 - ((y2 - y1) % 6)
-            x2 = x1 + roi_width
-            y2 = y1 + roi_height
-
-
             roi_frame = filt_frame[y1:y2, x1:x2]
-
 
             # Apply thermal color mapping
             roi_frame = cv.applyColorMap(roi_frame, cv.COLORMAP_INFERNO)
@@ -154,9 +139,6 @@ class ThermalCamera(QThread):
 
             # Draw the 3×3 grid
             self.draw_grid(roi_frame)
-            
-            frame = frame[y1:y2, x1:x2]  # Crop thermal data same as ROI
-            x1, y1, x2, y2 = 0, 0, roi_width, roi_height  # Reset coords for calc
 
             # Calculate section temperatures
             temps = self.calculate_temperatures(frame, x1, y1, x2, y2)
@@ -168,7 +150,7 @@ class ThermalCamera(QThread):
             max_temp_loc = np.unravel_index(np.argmax(frame, axis=None), frame.shape)
             max_temp_loc = (max_temp_loc[1] - x1, max_temp_loc[0] - y1)  # Adjust for ROI
             max_temp_loc = (max_temp_loc[0] * 600 // (x2 - x1), max_temp_loc[1] * 600 // (y2 - y1))  # Scale to resized frame
-            cv.rectangle(roi_frame, (max_temp_loc[0] - 5, max_temp_loc[1] - 5), (max_temp_loc[0] + 5, max_temp_loc[1] + 5), (0, 0, 0), 1)
+            cv.rectangle(roi_frame, (max_temp_loc[0] - 5, max_temp_loc[1] - 5), (max_temp_loc[0] + 5, max_temp_loc[1] + 5), (255, 255, 255), 1)
 
             # Emit the maximum temperature after dead pixel correction
             self.max_temp_signal.emit(frame.max())
@@ -189,11 +171,6 @@ class ThermalCamera(QThread):
             # ----------- END: Temperature Grid Logging -----------raju
 
             self.thermal_camera_frame_ready.emit(roi_frame, temps)  # Emit the frame for display
-            if DEVELOPMENT_MODE: # type: ignore
-                cv.imshow("Thermal Grid (Thermogram)", roi_frame)
-                if cv.waitKey(1) & 0xFF == ord('q'):
-                    self.stop()
-
         except Exception as e:
             logging.error(f"Error processing frame: {e}")
 
@@ -201,127 +178,81 @@ class ThermalCamera(QThread):
         """Draws a 3×3 grid overlay on the thermal feed."""
         try:
             h, w = frame.shape[:2]     # Get frame dimensions
-            step_w, step_h = w // 6, h // 6    # Divide width and height into 3 sections to get 3x3 grid
+            step_w, step_h = w // 3, h // 3    # Divide width and height into 3 sections to get 3x3 grid
 
             # Draw vertical lines
-            for i in range(1, 6):
+            for i in range(1, 3):
                 x = i * step_w
                 cv.line(frame, (x, 0), (x, h), (255, 255, 255), 1)
 
             # Draw horizontal lines
-            for i in range(1, 6):
+            for i in range(1, 3):
                 y = i * step_h
                 cv.line(frame, (0, y), (w, y), (255, 255, 255), 1)
         except Exception as e:
             logging.error(f"Error drawing grid: {e}")
 
     def calculate_temperatures(self, frame, x1, y1, x2, y2):
-        """Calculates average temperatures for a 6×6 grid."""
+        """Calculates the average temperatures for 9 sections in a 3x3 grid."""
         try:
             w, h = x2 - x1, y2 - y1
-            section_w, section_h = w // 6, h // 6
+            section_w, section_h = w // 3, h // 3   # Divide into 3x3 grid
+            
+            # Define sections
+            sections = {
+                "top-left": frame[y1:y1+section_h, x1:x1+section_w],
+                "top-center": frame[y1:y1+section_h, x1+section_w:x1+2*section_w],
+                "top-right": frame[y1:y1+section_h, x1+2*section_w:x2],
+                "middle-left": frame[y1+section_h:y1+2*section_h, x1:x1+section_w],
+                "middle-center": frame[y1+section_h:y1+2*section_h, x1+section_w:x1+2*section_w],
+                "middle-right": frame[y1+section_h:y1+2*section_h, x1+2*section_w:x2],
+                "bottom-left": frame[y1+2*section_h:y2, x1:x1+section_w],
+                "bottom-center": frame[y1+2*section_h:y2, x1+section_w:x1+2*section_w],
+                "bottom-right": frame[y1+2*section_h:y2, x1+2*section_w:x2]
+            }
 
-            temps = {}
-            count = 1
-
-            for row in range(6):
-                for col in range(6):
-                    x_start = x1 + col * section_w
-                    x_end = x1 + (col + 1) * section_w if col < 5 else x2  # use exact x2 on last column
-
-                    y_start = y1 + row * section_h
-                    y_end = y1 + (row + 1) * section_h if row < 5 else y2  # use exact y2 on last row
-
-                    region = frame[y_start:y_end, x_start:x_end]
-                    avg = float(np.mean(region)) if region.size > 0 else 0.0
-
-                    if np.isnan(avg):
-                        avg = 0.0
-
-                    temps[f"Section {count}"] = avg
-                    count += 1
-
-                 # ⬇️ Add compatibility mapping for old 3×3 heater controller names
-            compat_map = {
-                'top-left': (
-                          + temps.get('Section 7', 0) + 
-                         temps.get('Section 2', 0) + temps.get('Section 8', 0)
-                    ) / 3,
-
-                    'top-center': (
-                        temps.get('Section 3', 0) + temps.get('Section 4', 0) +
-                        temps.get('Section 9', 0) + temps.get('Section 10', 0)
-                    ) / 4,
-
-                    'top-right': (
-                        temps.get('Section 5', 0)  +
-                        temps.get('Section 11', 0) + temps.get('Section 12', 0)
-                    ) / 3,
-
-                    'middle-left': (
-                         temps.get('Section 13', 0)  + temps.get('Section 19', 0)
-                         + temps.get('Section 14', 0)  + temps.get('Section 20', 0)
-                    ) / 4,
-
-                    'middle-center': (
-                        temps.get('Section 15', 0) + temps.get('Section 16', 0) +
-                        temps.get('Section 21', 0) + temps.get('Section 22', 0)
-                    ) / 4,
-
-                    'middle-right': (
-                        temps.get('Section 17', 0) + temps.get('Section 18', 0) +
-                        temps.get('Section 23', 0) + temps.get('Section 24', 0)
-                    ) / 4,
-
-                    'bottom-left': (
-                         temps.get('Section 26', 0) + temps.get('Section 32', 0) 
-                         + temps.get('Section 25', 0)
-                    ) / 3,
-
-                    'bottom-center': (
-                        temps.get('Section 27', 0) + temps.get('Section 28', 0) +
-                        temps.get('Section 33', 0) + temps.get('Section 34', 0)
-                    ) / 4,
-
-                    'bottom-right': (
-                        temps.get('Section 29', 0) + temps.get('Section 30', 0) +
-                        temps.get('Section 35', 0) 
-                    ) / 3,
-                    
-}
-            temps.update(compat_map)
-
-            self.temps = temps
+            # Calculate average temperature for each section
+            self.temps = {name: np.mean(region) for name, region in sections.items()}
             return self.temps
-
         except Exception as e:
             logging.error(f"Error calculating temperatures: {e}")
             return self.temps
-
+    
+    def get_avg_temperatures(self):
+        """Returns the latest average temperatures for the 9 sections."""
+        return self.temps
     
     def overlay_text(self, frame, temps):
-        """Overlays temperature values on the image for a 6×6 grid."""
+        """Overlays temperature values on the image."""
         try:
             h, w = frame.shape[:2]
-            section_w, section_h = w // 6, h // 6  # Updated for 6×6 grid
+            section_w, section_h = w // 3, h // 3   # Grid size
 
-            font = cv.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.5
-            color = (0, 0, 0)
-            thickness = 1
+            # Set positions to display average temperature
+            positions = {
+                "top-left": (section_w // 4, section_h // 2),
+                "top-center": (w // 2 - 50 , section_h // 2),
+                "top-right": (w - section_w // 2 - section_w // 4, section_h // 2),
+                "middle-left": (section_w // 4, h // 2 ),
+                "middle-center": (w // 2 - 50 , h // 2 ),
+                "middle-right": (w - section_w // 2 - 50 , h // 2 ),
+                "bottom-left": (section_w // 4, h - section_h // 2),
+                "bottom-center": (w // 2 - 50, h - section_h // 2),
+                "bottom-right": (w - section_w // 2 - 50 , h - section_h // 2)
+            }
+            
+            # Overlay text for each section
+            for section, temp in temps.items():
+                x, y = positions[section]
+                cv.putText(frame, f"{temp:.2f}C", (x, y), cv.FONT_HERSHEY_SIMPLEX, 1, (100, 100, 100), 1)
 
-            count = 1
-            for row in range(6):
-                for col in range(6):
-                    x = col * section_w + section_w // 4
-                    y = row * section_h + section_h // 2
-                    temp_val = temps.get(f"Section {count}", 0)
-                    cv.putText(frame, f"{temp_val:.1f}", (x, y), font, font_scale, color, thickness)
-                    cv.putText(frame, f"{count}", (col * section_w + 5, row * section_h + 15), font, 0.4, (0, 255, 0), 1)
-                    count += 1
+            #  # Draw section labels
+            # for i, (section, (x, y)) in enumerate(positions.items(), 1):
+            #     label_x = (i - 1) % 3 * section_w + section_w // 2
+            #     label_y = (i - 1) // 3 * section_h + section_h // 2
+            #     cv.putText(frame, f"{section}", (label_x, label_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         except Exception as e:
             logging.error(f"Error overlaying text: {e}")
-
 
     def stop(self):
         """Stops the camera."""

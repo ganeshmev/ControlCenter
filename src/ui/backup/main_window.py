@@ -35,15 +35,15 @@ class MainWindow(QMainWindow):
         if not Config.DEVELOPMENT_MODE:
             try:
                 # Initialize thermal camera
-                self.thermal_camera = ThermalCamera(roi=(0, 11, 80, 74)) 
+                self.thermal_camera = ThermalCamera(roi=(0, 12, 80, 72)) 
                 self.thermal_camera.thermal_camera_frame_ready.connect(self.update_frame)
                 self.thermal_camera.max_temp_signal.connect(self.update_max_temp)
                 self.thermal_camera.start()
 
-                #Initialize RGB camera
-                self.rgb_camera = RGBCamera()
-                self.rgb_camera.rgb_camera_frame_ready.connect(self.update_rgb_frame)
-                self.rgb_camera.start()
+                # Initialize RGB camera
+                # self.rgb_camera = RGBCamera()
+                # self.rgb_camera.rgb_camera_frame_ready.connect(self.update_rgb_frame)
+                # self.rgb_camera.start()
             except Exception as e:
                 print(f"Error initializing cameras: {e}")
                 self.thermal_camera = None

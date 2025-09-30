@@ -1,7 +1,7 @@
 bedTemperature: '120'
 chamberTemperature: '163'
 d: '0.5'
-dosingHeight: '0.15'
+dosingHeight: '0.16'
 heatedBufferHeight: '4'
 heatedBufferRecoatingSequence: 'homeRecoater
 
@@ -35,7 +35,7 @@ initialLevellingRecoatingSequence: 'homeRecoater
   M400
 
   homeRecoater'
-layerHeight: '0.1'
+layerHeight: '0.13'
 moveToStartingSequence: 'G28 Z Y
 
   M400

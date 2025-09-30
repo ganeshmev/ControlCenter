@@ -34,7 +34,7 @@ class ProcessAutomationController(QObject):
         layerHeight = self.main_window.printer_status.layerHeight
         
         if Config.DEVELOPMENT_MODE:
-            layerHeight = 0.13
+            layerHeight = 0.1
 
         initialLevellingHeight = self.main_window.printer_status.initialLevellingHeight
         
@@ -72,7 +72,7 @@ class ProcessAutomationController(QObject):
         layerHeight = self.main_window.printer_status.layerHeight
 
         if Config.DEVELOPMENT_MODE:
-            layerHeight = 0.13
+            layerHeight = 0.1
 
         heatedBufferHeight = self.main_window.printer_status.heatedBufferHeight
        

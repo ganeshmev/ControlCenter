@@ -1,4 +1,4 @@
-# chamberTemperatureController.py  — updated for CH2..ch6 control (no CH1)
+# chamberTemperatureController.py  — updated for CH2..CH5 control (no CH1)
 from PyQt5.QtCore import QThread, pyqtSlot
 import numpy as np
 from simple_pid import PID
@@ -20,51 +20,31 @@ class ChamberTemperatureController(QThread):
         #   CH2 -> avg(bottom-left, bottom-center, bottom-right)      (bottom row)
         #   CH3 -> avg(top-right, middle-right, bottom-right)         (right column)
         #   CH4 -> avg(top-left, top-center, top-right)               (top row)
-        #   ch6 -> avg(top-left, middle-left, bottom-left)            (left column)
+        #   CH5 -> avg(top-left, middle-left, bottom-left)            (left column)
         #
         # # sane starter gains; adjust if needed
         # self.pid_bottom = PID(8.0, 0.03, 0.8, setpoint=0)   # CH2
         # self.pid_right  = PID(8.0, 0.03, 0.8, setpoint=0)   # CH3
         # self.pid_top    = PID(8.0, 0.03, 0.8, setpoint=0)   # CH4
-        # self.pid_left   = PID(8.0, 0.03, 0.8, setpoint=0)   # ch6
+        # self.pid_left   = PID(8.0, 0.03, 0.8, setpoint=0)   # CH5
 
-        # self.pid_bottom = PID(22.0, 0.28, 1.30, setpoint=0)
-        # self.pid_right = PID(9.5, 0.05, 1.80, setpoint=0)
-        # self.pid_top = PID(11.0, 0.05, 1.80, setpoint=0)
-        # self.pid_left = PID(5.5, 0.04, 1.90, setpoint=0)
-
-        # self.pid_bottom = PID(5, 0.00, 0, setpoint=0)
-        # self.pid_right = PID(5, 0.00, 0, setpoint=0)
-        # self.pid_top = PID(8, 0.00, 0, setpoint=0)
-        # self.pid_left = PID(5, 0.0, 0, setpoint=0)
-
-        self.pid_bottom = PID(500, 0.000001, 0.001, setpoint=0)
-        self.pid_right = PID(500, 0.000001, 0.001, setpoint=0)
-        self.pid_top = PID(500, 0.000001, 0.001, setpoint=0)
-        self.pid_left = PID(500, 0.000001, 0.001, setpoint=0)
+        self.pid_bottom = PID(500, 0.05, 0.8, setpoint=0)
+        self.pid_right = PID(500, 0.05, 0.8, setpoint=0)
+        self.pid_top = PID(500, 0.05, 0.8, setpoint=0)
+        self.pid_left = PID(500, 0.05, 0.8, setpoint=0)
 
         for pid in (self.pid_bottom, self.pid_right, self.pid_top, self.pid_left):
             pid.output_limits = (0, 99)     # MCU 0..99 + anti-windup
             pid.sample_time = None          # compute on each signal
 
         # Slew-limit to avoid sudden jumps on SSR/relays
-        self._last_out = {"ch2": 0, "ch3": 0, "ch4": 0, "ch6": 0}
-        self._slew_step = 4  # max change per control tick
+        self._last_out = {"ch2": 0, "ch3": 0, "ch4": 0, "ch5": 0}
+        self._slew_step = 10  # max change per control tick
 
         # Light EWMA smoothing on temps + spike clamp
-        self._filt = {"ch2": None, "ch3": None, "ch4": None, "ch6": None}
-        self._alpha = 0.14      # 0..1  (lower = smoother)
-        self._max_step_c = 2  # clamp per-frame ΔT (°C)
-        self._scale = {
-                    "ch2": 1,  # bottom 
-                    "ch3": 1,  # right
-                    "ch4": 1 ,  # top
-                    "ch6": 1,  # left  
-                    }
-
-        # Cold-start boost when far from setpoint (gentle feed-forward)
-        self._boost_err_threshold = 10   # °C below SP to start boosting
-        self._boost_gain = 1.0            # extra power per degree below threshold (capped by clamp)
+        self._filt = {"ch2": None, "ch3": None, "ch4": None, "ch5": None}
+        self._alpha = 0.30      # 0..1  (lower = smoother)
+        self._max_step_c = 3.0  # clamp per-frame ΔT (°C)
 
         # Keep last setpoint to reset PIDs on change
         self.previous_setpoint = getattr(self.printer_status, "chamberTemperatureSetpoint", 0)
@@ -88,13 +68,6 @@ class ChamberTemperatureController(QThread):
         self._last_out[key] = out
         return out
 
-    def _apply_boost(self, setpoint, meas, raw_out):
-        # If we're significantly below SP, add a little extra push.
-        err = setpoint - meas
-        if err > self._boost_err_threshold:
-            raw_out += self._boost_gain * (err - self._boost_err_threshold)
-        return raw_out
-
     def reset_pids(self):
         self.pid_bottom.reset()
         self.pid_right.reset()
@@ -104,7 +77,7 @@ class ChamberTemperatureController(QThread):
     # ---------- main control ----------
     @pyqtSlot(np.ndarray, dict)
     def control_heater(self, _frame, chamberTemperatures):
-        """Closed-loop control using CH2..ch6. No CH1 is driven."""
+        """Closed-loop control using CH2..CH5. No CH1 is driven."""
         setpoint = getattr(self.printer_status, "chamberTemperatureSetpoint", 90.0)
         self.printer_status.chamberTemperatureSetpoint = setpoint
 
@@ -138,8 +111,8 @@ class ChamberTemperatureController(QThread):
             t.get('top-right', 0.0),
         ])
 
-        # ch6 (left column)
-        ch6_meas = np.mean([
+        # CH5 (left column)
+        ch5_meas = np.mean([
             t.get('top-left', 0.0),
             t.get('middle-left', 0.0),
             t.get('bottom-left', 0.0),
@@ -155,56 +128,41 @@ class ChamberTemperatureController(QThread):
         ch2_f = self._ewma("ch2", float(ch2_meas))
         ch3_f = self._ewma("ch3", float(ch3_meas))
         ch4_f = self._ewma("ch4", float(ch4_meas))
-        ch6_f = self._ewma("ch6", float(ch6_meas))
+        ch5_f = self._ewma("ch5", float(ch5_meas))
 
         # PID outputs
         o2 = float(self.pid_bottom(ch2_f))
         o3 = float(self.pid_right(ch3_f))
         o4 = float(self.pid_top(ch4_f))
-        o5 = float(self.pid_left(ch6_f))
+        o5 = float(self.pid_left(ch5_f))
 
-        # Cold-start boost (helps reach SP quicker)
-        o2 = self._apply_boost(setpoint, ch2_f, o2)
-        o3 = self._apply_boost(setpoint, ch3_f, o3)
-        o4 = self._apply_boost(setpoint, ch4_f, o4)
-        o5 = self._apply_boost(setpoint, ch6_f, o5)
-
-        # Central over-temp moderation 
+        # Central over-temp moderation (your idea)
         middle_center_temp = t.get('middle-center', 0.0)
         if middle_center_temp > setpoint:
             factor = 0.75
             o2 *= factor; o3 *= factor; o4 *= factor; o5 *= factor
-       
-        # Per-channel scaling (mimic your old divide behavior)
-        o2 *= self._scale["ch2"]
-        o3 *= self._scale["ch3"]
-        o4 *= self._scale["ch4"]
-        o5 *= self._scale["ch6"]
 
         # Clamp + slew-limit
         clamp_int = lambda v: int(max(0, min(99, round(v))))
         ch2 = self._slew("ch2", clamp_int(o2))
         ch3 = self._slew("ch3", clamp_int(o3))
         ch4 = self._slew("ch4", clamp_int(o4))
-        ch6 = self._slew("ch6", clamp_int(o5))
-       
-        # ✅ Debug print — paste it here
-        print(f"[CTRL] SP={setpoint:.1f} | MC={middle_center_temp:.1f} | CH2={ch2_f:.1f}->{ch2} CH3={ch3_f:.1f}->{ch3} CH4={ch4_f:.1f}->{ch4} ch6={ch6_f:.1f}->{ch6}")
+        ch5 = self._slew("ch5", clamp_int(o5))
 
         # -------- SEND TO BOARD --------
-        # Preferred: your 4-arg API (order here is CH2,CH3,CH4,ch6).
+        # Preferred: your 4-arg API (order here is CH2,CH3,CH4,CH5).
         # If your board is still on the old 8-arg API, we fall back and keep CH1=0 (unused).
         try:
-            self.heater_board.setHeaterPowers(ch6, ch4, ch3, ch2)
+            self.heater_board.setHeaterPowers(ch5, ch4, ch3, ch2)
         except TypeError:
-            # Legacy 8-arg order [CH8, CH7, CH6, ch6, CH4, CH3, CH2, CH1]
+            # Legacy 8-arg order [CH8, CH7, CH6, CH5, CH4, CH3, CH2, CH1]
             # Duplicate pairs if your old hardware used two outputs per side; CH1=0 as requested.
             self.heater_board.setHeaterPowers(
-                ch6, ch6,   # CH8, CH7  (left)
-                ch6, ch6,   # CH6, ch5  (top)
-                ch4, ch3,   # CH4, CH3  (right)
+                ch5, ch5,   # CH8, CH7  (left)
+                ch4, ch4,   # CH6, CH5  (top)
+                ch3, ch3,   # CH4, CH3  (right)
                 ch2, 0      # CH2, CH1  (bottom, CH1 unused)
             )
 
         # Optional debug:
-        # print(f"SP={setpoint:.1f} | CH2(btm)={ch2_f:.1f}->{ch2}  CH3(rgt)={ch3_f:.1f}->{ch3}  CH4(top)={ch4_f:.1f}->{ch4}  ch6(lft)={ch6_f:.1f}->{ch6}")
+        # print(f"SP={setpoint:.1f} | CH2(btm)={ch2_f:.1f}->{ch2}  CH3(rgt)={ch3_f:.1f}->{ch3}  CH4(top)={ch4_f:.1f}->{ch4}  CH5(lft)={ch5_f:.1f}->{ch5}")
