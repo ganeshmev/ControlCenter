@@ -29,6 +29,13 @@ class TabScreen(QWidget):
         if home_tab:
             self.home_screen = HomeScreen(self.main_window)
             self.main_window.home_screen = self.home_screen  # Store reference in main_window
+            # Now that HomeScreen exists, connect automation log signal to its handler
+            try:
+                self.main_window.process_automation_controller.automation_log_signal.connect(
+                    self.home_screen.append_automation_log
+                )
+            except Exception as e:
+                print(f"Failed to connect automation log signal: {e}")
             layout = QVBoxLayout(home_tab)
             layout.addWidget(self.home_screen)
             home_tab.setLayout(layout)

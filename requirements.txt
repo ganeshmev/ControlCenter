@@ -6,7 +6,6 @@ opencv-python
 numpy 
 flask
 crcmod
-serial
 pyserial
 cmapy
 simple_pid
@@ -15,3 +14,4 @@ pyqtgraph
 simple-pid
 pyautogui
 easygui
+pywinauto

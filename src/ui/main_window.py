@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QStackedWidget
+from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QStackedWidget, QMessageBox
 from ui.loading_screen.loading_screen import LoadingScreen
 from ui.tab_screen.tab_screen import TabScreen
 from config import Config
@@ -26,7 +26,18 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
 
-        self.setFixedSize(1920,1030) # set a fixed size for mainwindow
+        # Optimize window size for 1080p and 3840x2400 screens
+        import sys
+        from PyQt5.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication(sys.argv)
+        screen = app.primaryScreen()
+        size = screen.size()
+        # If ultra-high-res, use 3840x2400, else use 1920x1080
+        if size.width() >= 3840 and size.height() >= 2160:
+            self.setGeometry(0, 0, 3840, 2400)
+        else:
+            self.setGeometry(0, 0, 1920, 1080)
+        self.showMaximized()  # Start maximized, user can resize
 
         # Initialize camera variables
         self.thermal_camera = None
@@ -89,6 +100,9 @@ class MainWindow(QMainWindow):
         self.file = None
         self.current_layer = 0
         self.file_template = ""
+        # Persistent process mode and input directory (used for DXF automation)
+        self.process_mode = getattr(self, "process_mode", "DXF")
+        self.input_dir = None
 
         # Adjust the size of the main window to fit its contents
         # self.adjustSize()
@@ -173,48 +187,53 @@ class MainWindow(QMainWindow):
 
     def get_input_directory(self, dirName):
         print(f"Selected directory: {dirName}")
-        # Loop through all files in the selected directory
-        self.layer_count = 0
-        for filename in os.listdir(dirName):
+        self.input_dir = dirName
+        # Branch by mode: EMD (API) vs DXF (Automation)
+        if self.process_mode == "DXF":
             try:
-                
-                file_path = os.path.join(dirName, filename)
-                # Check if it's a file (not a subdirectory)
-                if os.path.isfile(file_path):
-                    print(f"Processing file {file_path}...")
-
-                    # Call get_file or any relevant method to process each file
-
-                    if "emd" in filename:
-                        self.layer_count += 1
-
-                    # selecting only first layer file and loading it into scancard
-                        # print(filename)
-                        if "_1." in filename:
-                            print("Got the first layer file")
-                            self.current_layer = 1
-                            self.set_file(file_path)
-                            self.open_file()
-                            print(f"Loaded file {file_path}...")
-                            self.process_automation_controller.file_loaded = True
-                            self.file_template = self.file[:-5]
-                            self.current_layer += 1
-
-                    else:
-                        print(f"Invalid file format: {file_path}...")
-
+                # Only count DXFs that match the intended naming scheme (e.g., img_01.dxf)
+                files = [
+                    f for f in os.listdir(dirName)
+                    if os.path.isfile(os.path.join(dirName, f))
+                    and f.lower().endswith('.dxf')
+                    and f.lower().startswith('img_')
+                ]
+                files.sort()
+                self.layer_count = len(files)
+                print(f"[DXF] Found {self.layer_count} DXF files for printing (img_*.dxf).")
+                QMessageBox.information(self, "DXF Files Loaded", f"Found {self.layer_count} DXF files for printing. Press play to start.")
+                # Reset layer index for controller loop
+                self.current_layer = 0
             except Exception as e:
-                print(f"Error: {e}...")
-        
-        # update layer count in parent
-
-
-        
-        print(f"Total number of layers: {self.layer_count}")
-
-        import time
-        # update layer numbers in gui
-        time.sleep(2)
+                print(f"[DXF] Failed to enumerate DXF files: {e}")
+                self.layer_count = 0
+        else:
+            # Legacy EMD flow
+            self.layer_count = 0
+            filenames = sorted(os.listdir(dirName))
+            for filename in filenames:
+                try:
+                    file_path = os.path.join(dirName, filename)
+                    if os.path.isfile(file_path):
+                        print(f"Processing file {file_path}...")
+                        if "emd" in filename:
+                            self.layer_count += 1
+                            if "_1." in filename:
+                                print("Got the first layer file")
+                                self.current_layer = 1
+                                self.set_file(file_path)
+                                self.open_file()
+                                print(f"Loaded file {file_path}...")
+                                self.process_automation_controller.file_loaded = True
+                                self.file_template = self.file[:-5]
+                                self.current_layer += 1
+                        else:
+                            print(f"Invalid file format: {file_path}...")
+                except Exception as e:
+                    print(f"Error: {e}...")
+            print(f"Total number of layers: {self.layer_count}")
+            import time
+            time.sleep(2)
 
 
 
