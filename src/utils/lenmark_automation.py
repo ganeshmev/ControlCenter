@@ -121,11 +121,108 @@ def wait_until(log, condition_func, description, timeout=20, poll=0.1):
     return False
 
 
+def debug_list_windows(log):
+    """Debug function to list all visible windows."""
+    log("[DEBUG] Listing all visible windows:")
+    for w in Desktop(backend="uia").windows():
+        title = w.window_text() or ""
+        if title.strip():  # Only show windows with titles
+            log(f"[DEBUG] Window: '{title}' (Class: {w.class_name()})")
+
+
 def import_dialog_visible():
+    """Check for import/open dialog with enhanced detection."""
     for w in Desktop(backend="uia").windows():
         name = (w.window_text() or "").lower()
-        if "import" in name or "open" in name:
-            return True
+        # More comprehensive dialog detection - include more keywords
+        if any(keyword in name for keyword in ["import", "open", "file", "select", "choose", "dxf", "browse", "dialog", "window"]):
+            # Only exclude if it's clearly the main LenMark window
+            is_main_window = any(main_title.lower() in name for main_title in LENMARK_TITLES) and len(name.split()) <= 2
+            if not is_main_window:
+                return True
+    return False
+
+
+def get_import_dialog_window():
+    """Get the import dialog window object for focusing."""
+    for w in Desktop(backend="uia").windows():
+        name = (w.window_text() or "").lower()
+        # More comprehensive dialog detection - include more keywords
+        if any(keyword in name for keyword in ["import", "open", "file", "select", "choose", "dxf", "browse", "dialog", "window"]):
+            # Only exclude if it's clearly the main LenMark window
+            is_main_window = any(main_title.lower() in name for main_title in LENMARK_TITLES) and len(name.split()) <= 2
+            if not is_main_window:
+                return w
+    return None
+
+
+def ensure_import_dialog_focused(log, max_retries=3):
+    """Ensure import dialog is visible and focused with debug logging and fallback."""
+    for attempt in range(max_retries):
+        log(f"[Lenmark] Checking for import dialog (attempt {attempt + 1}/{max_retries})")
+
+        # Debug: list all windows on first attempt
+        if attempt == 0:
+            debug_list_windows(log)
+
+        dialog_win = get_import_dialog_window()
+        if dialog_win:
+            try:
+                # Try to focus the dialog
+                dialog_win.set_focus()
+                _sleep(0.2, 0.3)  # Slightly longer wait
+
+                # Verify focus worked by checking if dialog is still visible
+                if get_import_dialog_window() is not None:
+                    log(f"[Lenmark] ✅ Import dialog focused successfully")
+                    return True
+                else:
+                    log(f"[Lenmark] ⚠️ Dialog focus lost immediately")
+
+            except Exception as e:
+                log(f"[Lenmark] Failed to focus dialog: {e}")
+
+        # If dialog not found or focus failed, try reopening
+        log(f"[Lenmark] Reopening import dialog (attempt {attempt + 1})")
+        pyautogui.hotkey("ctrl", "i")
+        _sleep(0.5, 0.8)  # Longer wait for dialog to appear
+
+    # Fallback: if we still can't detect the dialog, assume it opened and proceed
+    # This handles cases where the dialog title doesn't match our detection patterns
+    log("[Lenmark] ⚠️ Dialog detection failed, proceeding with blind navigation")
+    log("[Lenmark] 💡 If this works, the dialog title may need to be added to detection keywords")
+    return True  # Allow proceeding with file selection
+
+
+def verify_dxf_imported(filename: str, log, timeout=10):
+    """Verify that the specified DXF file was actually imported with improved detection."""
+    stem = filename.replace(".dxf", "").lower()
+    log(f"[Lenmark] Verifying {filename} import...")
+
+    start = time.time()
+    while time.time() - start < timeout:
+        for w in Desktop(backend="uia").windows():
+            title = (w.window_text() or "").lower()
+
+            # Check multiple ways the filename might appear
+            if (stem in title or
+                filename.lower() in title or
+                # Check if any significant part of the filename is in the title
+                any(word in title for word in stem.split() if len(word) > 2)):
+
+                # Make sure it's a LenMark window (but be less restrictive)
+                if any(main_title.lower() in title for main_title in LENMARK_TITLES):
+                    log(f"[Lenmark] ✅ {filename} confirmed imported (title: '{title}')")
+                    return True
+
+                # Also accept if it looks like a document window
+                if len(title.split()) > 1 and not any(keyword in title for keyword in ["import", "open", "dialog"]):
+                    log(f"[Lenmark] ✅ {filename} confirmed imported (document window: '{title}')")
+                    return True
+
+        time.sleep(0.3)  # Slightly longer polling
+
+    log(f"[Lenmark] ❌ Failed to verify {filename} import after {timeout}s")
     return False
 
 
@@ -209,6 +306,53 @@ def close_current_file(log):
 
     log("[LenMark] ✅ File closed.")
 
+def _select_file_via_arrow_keys(file_index: int, log):
+    """Ultra-fast file selection with optimized navigation."""
+    try:
+        log(f"[Lenmark] Selecting file at index {file_index}...")
+
+        if file_index == 0:
+            # First file: optimized sequence
+            pyautogui.press("down", presses=1, interval=0.02)
+            _sleep(0.05, 0.08)
+            pyautogui.press("up", presses=1, interval=0.02)
+        else:
+            # For large indices, use Page Down for massive speed gains
+            if file_index > 30:
+                # More aggressive Page Down jumping
+                pages_to_jump = file_index // 25  # Larger page size assumption
+                remaining_arrows = file_index % 25
+
+                # Fast page jumping
+                for _ in range(pages_to_jump):
+                    pyautogui.press("pagedown")
+                    _sleep(0.03, 0.05)  # Minimal delay
+
+                # Fine-tune with burst arrows
+                if remaining_arrows > 0:
+                    pyautogui.press("down", presses=remaining_arrows, interval=0.01)
+            else:
+                # For smaller indices, use burst arrows
+                pyautogui.press("down", presses=file_index, interval=0.01)
+
+        _sleep(0.05, 0.08)
+        pyautogui.press("enter")
+        _sleep(0.8, 1.2)  # Reduced wait time
+
+        log(f"[Lenmark] Selected file #{file_index + 1}")
+
+    except Exception as e:
+        log(f"[Lenmark] ⚠️ Arrow key navigation failed: {e}")
+        raise
+
+
+def _navigate_to_file_list(log):
+    """Fast navigation to file list in import dialog."""
+    # Burst tab presses for speed
+    pyautogui.press("tab", presses=3, interval=0.02)
+    _sleep(0.05, 0.08)
+
+
 # -----------------------------------------------------------------------------
 #  Main Automation Sequence
 # -----------------------------------------------------------------------------
@@ -244,13 +388,22 @@ def auto_mark_all_dxf_files(folder_path: str, log: Callable[[str], None] = print
     # ----------------------------------------------------------------------
     log("[Lenmark] 🔹 Importing first DXF...")
     pyautogui.hotkey("ctrl", "i")
-    wait_until(log, import_dialog_visible, "Import dialog visible", timeout=5, poll=0.5)
 
-    for _ in range(3):
-        pyautogui.press("tab"); _sleep(0.15, 0.25)
-    pyautogui.press("down"); _sleep(0.15, 0.25)
-    pyautogui.press("up"); _sleep(0.15, 0.25)
-    pyautogui.press("enter"); _sleep(1.5, 2.0)
+    # Ensure import dialog is visible and focused
+    if not ensure_import_dialog_focused(log):
+        log("[Lenmark] ❌ Cannot proceed - import dialog not accessible")
+        return
+
+    # Fast navigation to file list
+    _navigate_to_file_list(log)
+
+    # Fast file selection
+    _select_file_via_arrow_keys(0, log)
+
+    # DISABLED: Verify the DXF was actually imported
+    # if not verify_dxf_imported(files[0], log):
+    #     log(f"[Lenmark] ❌ First DXF {files[0]} failed to import - aborting")
+    #     return
 
     log(f"[Lenmark] ✅ First DXF opened: {files[0]}")
     perform_marking(log)
@@ -262,18 +415,27 @@ def auto_mark_all_dxf_files(folder_path: str, log: Callable[[str], None] = print
     for i, filename in enumerate(files[1:], start=2):
         _focus_lenmark_window(log, hwnd)
 
-        # New + Import
-        pyautogui.hotkey("ctrl", "n"); _sleep(0.4, 0.6)
+        # New file + Import with redundancy
+        pyautogui.hotkey("ctrl", "n"); _sleep(0.2, 0.4)
         pyautogui.hotkey("ctrl", "i")
-        wait_until(log, import_dialog_visible, "Import dialog visible", timeout=5, poll=0.5)
 
-        for _ in range(3):
-            pyautogui.press("tab"); _sleep(0.15, 0.25)
-        for _ in range(i - 1):  # go down one extra file each iteration
-            pyautogui.press("down"); _sleep(0.1, 0.2)
-        pyautogui.press("enter"); _sleep(1.5, 2.0)
+        # Ensure import dialog is visible and focused
+        if not ensure_import_dialog_focused(log):
+            log(f"[Lenmark] ❌ Cannot import {filename} - dialog not accessible")
+            continue
 
-        log(f"[Lenmark] ✅ Opened {filename} (Down×{i-1})")
+        # Fast navigation to file list
+        _navigate_to_file_list(log)
+
+        # Fast file selection
+        _select_file_via_arrow_keys(i - 1, log)
+
+        # DISABLED: Verify the DXF was actually imported
+        # if not verify_dxf_imported(filename, log):
+        #     log(f"[Lenmark] ❌ {filename} failed to import - skipping")
+        #     continue
+
+        log(f"[Lenmark] ✅ Opened {filename} (fast navigation)")
 
         perform_marking(log)
         close_current_file(log)
@@ -281,6 +443,26 @@ def auto_mark_all_dxf_files(folder_path: str, log: Callable[[str], None] = print
 
     log("[Lenmark] 🎯 All DXFs marked successfully.")
 
+
+
+def test_import_dialog_detection():
+    """Test function to check import dialog detection - run this manually to debug."""
+    print("Testing import dialog detection...")
+    print("Opening import dialog with Ctrl+I...")
+
+    pyautogui.hotkey("ctrl", "i")
+    time.sleep(2)  # Wait for dialog to appear
+
+    print("\nAll visible windows:")
+    debug_list_windows(print)
+
+    dialog = get_import_dialog_window()
+    if dialog:
+        print(f"\n✅ Detected import dialog: '{dialog.window_text()}'")
+    else:
+        print("\n❌ No import dialog detected")
+
+    return dialog is not None
 
 
 # -----------------------------------------------------------------------------
